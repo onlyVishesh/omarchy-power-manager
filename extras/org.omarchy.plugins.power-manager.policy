@@ -3,7 +3,7 @@
  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
-  <vendor>OMarchy Power Manager Plugin</vendor>
+  <vendor>Omarchy Power Manager Plugin</vendor>
   <vendor_url>https://omarchy.org</vendor_url>
 
   <action id="org.omarchy.plugins.power-manager.apply">

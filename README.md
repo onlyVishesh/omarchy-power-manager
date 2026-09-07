@@ -138,7 +138,35 @@ For Omarchy users, hibernation can be safely toggled and configured using the of
 ### 4. Lid Settings Don't Seem to Apply
 **Fix:** When you click "Apply All Settings", a Polkit graphical prompt asks for your password to write the rules via `pkexec`. If you cancel this prompt, the background rewriting will fail. Ensure your polkit agent is running.
 
+
+## 🤖 AI Agent Customization Skill
+
+This repository includes a native **Antigravity AI Skill** designed to help non-coders modify, customize, and debug this plugin specifically for their hardware. 
+
+If you use an AI agent (like Antigravity or Claude), simply point it to the included skill file:
+```bash
+CLAUDE.md
+```
+Your agent will instantly understand the entire architecture of the plugin, how to safely modify the Quickshell UI, and how to debug Linux ACPI sleep states for your specific machine!
+
+## 🤝 Contributing
+
+We welcome community contributions! Whether you are a seasoned developer or a non-coder who used an AI agent to build a cool new feature for this plugin, we'd love to merge your work.
+
+1. **Fork the Repository** and create your feature branch (`git checkout -b feature/AmazingFeature`).
+2. **Ensure UI Stability:** Run `omarchy restart shell` and check `journalctl -t omarchy-shell` to ensure your QML changes don't throw errors.
+3. **Commit your Changes** (`git commit -m 'Add some AmazingFeature'`).
+4. **Push to the Branch** (`git push origin feature/AmazingFeature`).
+5. **Open a Pull Request** at [onlyVishesh/omarchy-power-manager](https://github.com/onlyVishesh/omarchy-power-manager/pulls).
+
+### Raising Issues
+If you encounter hardware-specific bugs (especially with obscure laptop lid sensors or sleep states), please open an issue in the repository. Make sure to include your system sleep logs:
+```bash
+journalctl -t systemd-sleep -n 50
+```
+
 ---
 <div align="center">
+
   <p>Built with ❤️ for the Omarchy Community.</p>
 </div>

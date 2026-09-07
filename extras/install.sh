@@ -6,7 +6,7 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 1
 fi
 
-echo "Installing OMarchy Power Manager backend..."
+echo "Installing Omarchy Power Manager backend..."
 
 LIBEXEC_DIR="/usr/local/libexec/omarchy-power-manager"
 POLKIT_DIR="/usr/share/polkit-1/actions"
