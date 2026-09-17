@@ -1552,40 +1552,80 @@ Panel {
     
     QQC2.Popup {
       id: menuPopup
-      y: dropdownRoot.height + Style.space(4)
+      // A QQC2.Popup can only draw inside this panel's own window, so a list that
+      // runs past the window edge is cut off — which is what the last dropdowns of
+      // the Advanced tab hit (e.g. "Battery Low" under "When laptop lid closes").
+      // The placement must be computed when the list opens: mapToItem() is not a
+      // tracked dependency, so a binding over it goes stale as soon as the panel's
+      // scroll position changes. Flip up when there is no room below, clamp to the
+      // room that is left, and let the list scroll so every option stays reachable.
+      property real roomBelow: naturalHeight
+      property real roomAbove: 0
+      readonly property real rowHeight: Style.space(28)
+      readonly property real listHeight: dropdownRoot.options.length * rowHeight
+      readonly property real naturalHeight: listHeight + 2 * padding + 2
+      readonly property bool flipUp: naturalHeight > roomBelow && roomAbove > roomBelow
+
+      function updatePlacement() {
+        var win = dropdownRoot.Window.window;
+        if (!win) {
+          roomAbove = 0;
+          roomBelow = naturalHeight;
+          return;
+        }
+        roomAbove = dropdownRoot.mapToItem(null, 0, 0).y - Style.space(8);
+        roomBelow = win.height - dropdownRoot.mapToItem(null, 0, dropdownRoot.height).y - Style.space(8);
+      }
+
+      onOpened: updatePlacement()
+      y: flipUp ? -(height + Style.space(4)) : dropdownRoot.height + Style.space(4)
       width: dropdownRoot.width
+      height: Math.max(rowHeight, Math.min(naturalHeight, flipUp ? roomAbove : roomBelow))
       padding: Style.space(4)
       background: Rectangle {
         color: Qt.rgba(root.bar ? root.bar.background.r : Color.background.r, root.bar ? root.bar.background.g : Color.background.g, root.bar ? root.bar.background.b : Color.background.b, 1.0)
         border.color: Qt.rgba(root.bar ? root.bar.foreground.r : Color.foreground.r, root.bar ? root.bar.foreground.g : Color.foreground.g, root.bar ? root.bar.foreground.b : Color.foreground.b, 0.15)
         radius: Style.space(6)
       }
-      contentItem: Column {
-        spacing: 0
-        Repeater {
-          model: dropdownRoot.options
-          delegate: Rectangle {
-            width: dropdownRoot.width - Style.space(8)
-            height: Style.space(28)
-            color: mouseArea.containsMouse ? Qt.rgba(root.bar ? root.bar.foreground.r : Color.foreground.r, root.bar ? root.bar.foreground.g : Color.foreground.g, root.bar ? root.bar.foreground.b : Color.foreground.b, 0.1) : "transparent"
-            radius: Style.space(4)
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              anchors.left: parent.left
-              anchors.leftMargin: Style.space(8)
-              text: typeof modelData === "string" ? modelData : (modelData.label || modelData.value)
-              color: root.bar ? root.bar.foreground : Color.foreground
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
-              font.pixelSize: Style.font.bodySmall
-            }
-            MouseArea {
-              id: mouseArea
-              anchors.fill: parent
-              hoverEnabled: true
-              onClicked: {
-                var val = typeof modelData === "string" ? modelData : modelData.value;
-                dropdownRoot.changed(val);
-                menuPopup.close();
+      contentItem: Flickable {
+        id: listFlick
+        clip: true
+        implicitHeight: menuPopup.listHeight
+        contentHeight: menuPopup.listHeight
+        contentWidth: width
+        boundsBehavior: Flickable.StopAtBounds
+        interactive: contentHeight > height
+
+        Column {
+          width: listFlick.width
+          spacing: 0
+          Repeater {
+            model: dropdownRoot.options
+            delegate: Rectangle {
+              width: dropdownRoot.width - Style.space(8)
+              height: Style.space(28)
+              color: mouseArea.containsMouse ? Qt.rgba(root.bar ? root.bar.foreground.r : Color.foreground.r, root.bar ? root.bar.foreground.g : Color.foreground.g, root.bar ? root.bar.foreground.b : Color.foreground.b, 0.1) : "transparent"
+              radius: Style.space(4)
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                anchors.leftMargin: Style.space(8)
+                width: parent.width - Style.space(16)
+                elide: Text.ElideRight
+                text: typeof modelData === "string" ? modelData : (modelData.label || modelData.value)
+                color: root.bar ? root.bar.foreground : Color.foreground
+                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                font.pixelSize: Style.font.bodySmall
+              }
+              MouseArea {
+                id: mouseArea
+                anchors.fill: parent
+                hoverEnabled: true
+                onClicked: {
+                  var val = typeof modelData === "string" ? modelData : modelData.value;
+                  dropdownRoot.changed(val);
+                  menuPopup.close();
+                }
               }
             }
           }
