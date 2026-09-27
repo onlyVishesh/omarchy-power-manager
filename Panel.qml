@@ -183,7 +183,7 @@ Panel {
             var idleSt = JSON.parse(parts[0].trim())
             var lockSt = JSON.parse(parts[1].trim())
             
-            var isSleepable = (idleSt.inIdleCycle === true || lockSt.locked === true);
+            var isSleepable = idleSt.stayAwake !== true && (idleSt.inIdleCycle === true || lockSt.locked === true);
             var isTyping = (lockSt.locked === true && (lockSt.authenticating || lockSt.unlocking || lockSt.previewTyped > 0));
             
             if (isSleepable) {
