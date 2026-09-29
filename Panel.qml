@@ -1239,7 +1239,7 @@ Panel {
     anchorItem: barBtn
     owner: root
     bar: root.bar
-    open: root.opened
+    open: root.opened && !root.openedFromMenu
     contentWidth: popupPanel.fittedContentWidth(Style.space(480))
     contentHeight: popupPanel.fittedContentHeight(popupFlick.contentHeight + Style.space(32))
 
