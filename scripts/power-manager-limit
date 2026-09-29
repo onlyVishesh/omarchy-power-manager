@@ -21,7 +21,7 @@ if ! [[ "$LIMIT" =~ ^[0-9]+$ ]]; then
 fi
 
 # Apply immediately
-printf '%s\n' "$LIMIT" > "$SYS_PATH/charge_control_end_threshold" || true
+printf '%s\n' "$LIMIT" > "$SYS_PATH/charge_control_end_threshold"
 
 # Apply persistence rule
 if [ "$LIMIT" -eq 100 ]; then
