@@ -6,9 +6,12 @@
   "author": "OnlyVishesh",
   "description": "Advanced power management with hibernation support, configurable profiles, idle behavior, and lid actions",
   "kinds": [
+    "service",
     "bar-widget"
   ],
+  "keepLoaded": true,
   "entryPoints": {
+    "service": "Service.qml",
     "barWidget": "Panel.qml"
   },
   "barWidget": {

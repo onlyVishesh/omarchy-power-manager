@@ -162,13 +162,17 @@ if [ "$ENABLED" = "true" ]; then
         SLEEP_DIR="${OMARCHY_SYSTEMD_SLEEP_DIR:-/etc/systemd/sleep.conf.d}"
         mkdir -p "$LOGIND_DIR" "$SLEEP_DIR" 2>/dev/null || true
         
+        # Idle/sleep is handled directly by Service.qml calling
+        # `systemctl suspend`/etc. off Omarchy's own idle+lock signal, not by
+        # logind's IdleAction/IdleActionSec. Those never fire on this setup:
+        # they only trigger off logind's IdleHint, which nothing here ever
+        # sets (no hypridle/swayidle, and Omarchy's shell idle daemon doesn't
+        # feed it either). Only lid-switch handling belongs in this file.
         cat <<INI > "$LOGIND_DIR/90-power-manager.conf"
 [Login]
 HandleLidSwitch=$LID_BAT_ACT
 HandleLidSwitchExternalPower=$LID_AC_ACT
 HandleLidSwitchDocked=ignore
-IdleAction=$IDLE_ACT
-IdleActionSec=$IDLE_SEC
 INI
         
         cat <<INI > "$SLEEP_DIR/90-power-manager.conf"
