@@ -15,8 +15,15 @@ if [ -z "$LIMIT" ] || [ -z "$SYS_PATH" ] || [ -z "$TMPFILES_PATH" ]; then
     exit 1
 fi
 
-if ! [[ "$LIMIT" =~ ^[0-9]+$ ]]; then
+if ! [[ "$LIMIT" =~ ^(0|[1-9][0-9]{0,2})$ ]] || (( LIMIT > 100 )); then
     echo '{"success": false, "errors": ["Invalid limit format"]}'
+    exit 1
+fi
+
+if [[ ! "$SYS_PATH" =~ ^/sys/class/power_supply/[A-Za-z0-9_][A-Za-z0-9_.:@-]*$ ]] ||
+   [[ "$(cat "$SYS_PATH/type" 2>/dev/null)" != Battery ]] ||
+   [[ "$TMPFILES_PATH" != /etc/tmpfiles.d/battery-limiter.conf ]]; then
+    echo '{"success": false, "errors": ["Invalid battery or persistence path"]}'
     exit 1
 fi
 
