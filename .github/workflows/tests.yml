@@ -1,0 +1,23 @@
+name: Tests
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  policy-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Run isolated regression tests
+        if: ${{ hashFiles('tests/test_*.py') != '' }}
+        run: python3 -m unittest discover -s tests -v
+      - name: Check source syntax
+        run: |
+          node --check Model.js
+          bash -n scripts/power-manager-apply scripts/power-manager-limit scripts/power-manager-profile-switch
+      - name: Check patch whitespace
+        run: git show --format= --check HEAD
