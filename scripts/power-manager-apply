@@ -29,6 +29,10 @@ if ! jq empty "$CONFIG_FILE" 2>/dev/null; then
 fi
 
 DIR="$(dirname "$(realpath "$0")")"
+if [ ! -x "$DIR/power-manager-profile-switch" ]; then
+    echo '{"success": false, "errors": ["Profile helper missing"]}'
+    exit 1
+fi
 
 UDEV_DIR="${OMARCHY_UDEV_DIR:-/etc/udev/rules.d}"
 if [ "$(id -u)" -eq 0 ] || [ -n "${OMARCHY_UDEV_DIR:-}" ]; then
@@ -48,7 +52,7 @@ fi
 
 # Delegate the rest to profile switch (which now handles logind and sleep configs dynamically)
 if [ -x "$DIR/power-manager-profile-switch" ]; then
-    "$DIR/power-manager-profile-switch" "$CONFIG_FILE" >/dev/null 2>&1 || true
+    "$DIR/power-manager-profile-switch" "$CONFIG_FILE" >/dev/null
 fi
 
 echo '{"success": true, "applied": ["udev", "profile", "logind"], "errors": []}'
