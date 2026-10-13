@@ -33,6 +33,11 @@ function defaultConfig() {
         hibernateAfterMinutes: 15
       }
     },
+    screenOff: {
+      ac: { afterMinutes: 0 },
+      batteryHigh: { afterMinutes: 0 },
+      batteryLow: { afterMinutes: 0 }
+    },
     lid: {
       ignoreLidClose: false,
       ac: { action: "suspend" },
