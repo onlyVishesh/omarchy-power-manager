@@ -245,6 +245,24 @@ Panel {
 
   Process { id: idleActionProc }
 
+  // ── Screen Off After Inactivity ──
+  // Only blanks the display; Hyprland's key_press/mouse_move_enables_dpms wakes it on input.
+  readonly property int screenOffMins: root.getVal("screenOff." + currentStateKey + ".afterMinutes", 0)
+
+  IdleMonitor {
+    id: screenOffMonitor
+    enabled: !!root.bar && root.getVal("enabled", true) && root.screenOffMins > 0
+    timeout: Math.max(1, root.screenOffMins) * 60
+    respectInhibitors: true
+    onIsIdleChanged: {
+      if (!isIdle || screenOffProc.running) return
+      console.log("SCREEN OFF: idle for", root.screenOffMins, "min, turning display off")
+      screenOffProc.running = true
+    }
+  }
+
+  Process { id: screenOffProc; command: ["omarchy-brightness-display", "off"] }
+
   // ── IPC handlers ──
   IpcHandler {
     target: "power-manager"
@@ -933,6 +951,18 @@ Panel {
             }
           }
         }
+
+        PanelSeparator { foreground: root.bar ? root.bar.foreground : Color.foreground }
+
+        // Screen Off
+        PanelSectionHeader {
+          text: "TURN SCREEN OFF AFTER INACTIVITY (0 = NEVER)"
+          foreground: root.bar ? root.bar.foreground : Color.foreground
+          fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+        }
+        SettingRow { label: "On AC (min)"; widgetType: "number"; configKey: "screenOff.ac.afterMinutes" }
+        SettingRow { label: "Battery High (min)"; widgetType: "number"; configKey: "screenOff.batteryHigh.afterMinutes" }
+        SettingRow { label: "Battery Low (min)"; widgetType: "number"; configKey: "screenOff.batteryLow.afterMinutes" }
 
         PanelSeparator { foreground: root.bar ? root.bar.foreground : Color.foreground }
 

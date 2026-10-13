@@ -107,6 +107,7 @@ To ensure maximum hardware compatibility, the plugin ships with highly robust, f
   - **AC Power:** Sleeps after `30` minutes of inactivity.
   - **Battery High:** Sleeps after `15` minutes.
   - **Battery Low:** Sleeps after `5` minutes.
+- **Screen Off:** Disabled (`0`) by default. Set minutes per power state on the Advanced tab to blank the display after inactivity, independent of sleep.
 - **Lid Close:** Defaulted to `suspend` across all three states.
 - **Battery Limit:** `100%` (Stock behavior). For laptop health, we recommend `80%`.
 
