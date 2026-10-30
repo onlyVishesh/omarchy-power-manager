@@ -261,10 +261,11 @@ function aggregateBatteries(rows, validPath) {
 
     if (r.charge_control_end_threshold !== undefined) {
       var lim = batteryNum(r, "charge_control_end_threshold");
-      if (lim >= 1 && lim <= 100) {
-        limitVals.push(lim);
-        out.limitPaths.push(r.path);
-      }
+      // Some drivers report 0 to mean "no limit configured"; treat it as 100
+      // while still exposing the battery as limit-capable.
+      if (!(lim >= 1 && lim <= 100)) lim = 100;
+      limitVals.push(lim);
+      out.limitPaths.push(r.path);
     }
   }
 
