@@ -371,7 +371,7 @@ Panel {
     bar: root.bar
     fontSize: Style.bar.iconFont
     horizontalMargin: (root.config && root.config.appearance && root.config.appearance.showPercentage !== false) ? 6.0 : 8.5
-    text: ((root.config && root.config.appearance && root.config.appearance.showPercentage !== false && UPower.displayDevice.percentage * 100 > 0) ? Math.round(UPower.displayDevice.percentage * 100) + "% " : "") + (Model.batteryIcon(UPower.displayDevice, UPower.onBattery, root.upowerStates) || "󰂄")
+    text: ((root.config && root.config.appearance && root.config.appearance.showPercentage !== false && root.batteryPresent) ? Math.round(root.batteryFrac * 100) + "% " : "") + (Model.batteryIcon(UPower.displayDevice, UPower.onBattery, root.upowerStates) || "󰂄")
     onPressed: function(btn) { root.openedFromMenu = false; root.toggle() }
   }
 
