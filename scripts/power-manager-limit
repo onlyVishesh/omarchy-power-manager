@@ -7,10 +7,10 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 LIMIT="${1:-}"
-SYS_PATH="${2:-}"
+SYS_PATHS="${2:-}"
 TMPFILES_PATH="${3:-}"
 
-if [ -z "$LIMIT" ] || [ -z "$SYS_PATH" ] || [ -z "$TMPFILES_PATH" ]; then
+if [ -z "$LIMIT" ] || [ -z "$SYS_PATHS" ] || [ -z "$TMPFILES_PATH" ]; then
     echo '{"success": false, "errors": ["Missing arguments"]}'
     exit 1
 fi
@@ -20,14 +20,40 @@ if ! [[ "$LIMIT" =~ ^[0-9]+$ ]]; then
     exit 1
 fi
 
-# Apply immediately
-printf '%s\n' "$LIMIT" > "$SYS_PATH/charge_control_end_threshold" || true
+# SYS_PATHS is a comma-separated list so a single invocation can cover every
+# battery in dual-battery laptops (e.g. ThinkPad T470: BAT0 + BAT1).
+IFS=',' read -r -a PATHS <<< "$SYS_PATHS"
+if [ "${#PATHS[@]}" -eq 0 ]; then
+    echo '{"success": false, "errors": ["No battery paths supplied"]}'
+    exit 1
+fi
 
-# Apply persistence rule
+for path in "${PATHS[@]}"; do
+    if [[ ! "$path" =~ ^/sys/class/power_supply/[A-Za-z0-9_][A-Za-z0-9_.:@-]*$ ]]; then
+        echo '{"success": false, "errors": ["Invalid power supply path"]}'
+        exit 1
+    fi
+    if [ ! -f "$path/charge_control_end_threshold" ]; then
+        echo "{\"success\": false, \"errors\": [\"Charge limit not supported on $path\"]}"
+        exit 1
+    fi
+done
+
+# Apply immediately to every supported battery.
+for path in "${PATHS[@]}"; do
+    printf '%s\n' "$LIMIT" > "$path/charge_control_end_threshold" || true
+done
+
+# Apply the persistence rule atomically.
 if [ "$LIMIT" -eq 100 ]; then
     rm -f "$TMPFILES_PATH"
 else
-    printf 'w %s/charge_control_end_threshold - - - - %s\n' "$SYS_PATH" "$LIMIT" > "$TMPFILES_PATH"
+    tmp=$(mktemp "${TMPFILES_PATH}.XXXXXX")
+    : > "$tmp"
+    for path in "${PATHS[@]}"; do
+        printf 'w %s/charge_control_end_threshold - - - - %s\n' "$path" "$LIMIT" >> "$tmp"
+    done
+    mv -f "$tmp" "$TMPFILES_PATH"
 fi
 
 echo '{"success": true}'

@@ -34,25 +34,69 @@ if [ -d "$PSY_PATH" ]; then
     done
 fi
 
-BAT_COUNT=0; BAT_CAP_SUM=0; BAT_PRESENT=false
+# Combined battery percentage. Dual-battery laptops expose several packs
+# (ThinkPad T470: BAT0 + BAT1), so weight each pack by its real capacity
+# instead of averaging the per-pack percentages.
+BAT_PRESENT=false
+BAT_TOTAL=0
+BAT_ENERGY_OK=true; BAT_ENERGY_NOW=0; BAT_ENERGY_FULL=0
+BAT_CHARGE_OK=true; BAT_CHARGE_NOW=0; BAT_CHARGE_FULL=0
+BAT_CAP_SUM=0; BAT_CAP_COUNT=0
 if [ -d "$PSY_PATH" ]; then
     for supply in "$PSY_PATH"/*; do
         [ -d "$supply" ] || continue
         is_bat=false
         type=$(cat "$supply/type" 2>/dev/null || true)
         if [ "$type" = "Battery" ] || [[ "$(basename "$supply")" =~ ^BAT[0-9]+ ]]; then is_bat=true; fi
-        if [ "$is_bat" = "true" ]; then
-            BAT_PRESENT=true
-            if [ -r "$supply/capacity" ]; then
-                cap=$(cat "$supply/capacity" 2>/dev/null | tr -d '[:space:]' || echo "")
-                if [[ "$cap" =~ ^[0-9]+$ ]]; then
-                    BAT_CAP_SUM=$((BAT_CAP_SUM + cap)); BAT_COUNT=$((BAT_COUNT + 1))
-                fi
-            fi
+        [ "$is_bat" = "true" ] || continue
+
+        if [ -r "$supply/present" ] && [ "$(cat "$supply/present" 2>/dev/null | tr -d '[:space:]')" = "0" ]; then
+            continue
+        fi
+
+        BAT_PRESENT=true
+        BAT_TOTAL=$((BAT_TOTAL + 1))
+
+        energy_now=$(cat "$supply/energy_now" 2>/dev/null | tr -d '[:space:]' || true)
+        energy_full=$(cat "$supply/energy_full" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$energy_now" =~ ^[0-9]+$ && "$energy_full" =~ ^[0-9]+$ ]] && [ "$energy_full" -gt 0 ]; then
+            BAT_ENERGY_NOW=$((BAT_ENERGY_NOW + energy_now))
+            BAT_ENERGY_FULL=$((BAT_ENERGY_FULL + energy_full))
+        else
+            BAT_ENERGY_OK=false
+        fi
+
+        charge_now=$(cat "$supply/charge_now" 2>/dev/null | tr -d '[:space:]' || true)
+        charge_full=$(cat "$supply/charge_full" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$charge_now" =~ ^[0-9]+$ && "$charge_full" =~ ^[0-9]+$ ]] && [ "$charge_full" -gt 0 ]; then
+            BAT_CHARGE_NOW=$((BAT_CHARGE_NOW + charge_now))
+            BAT_CHARGE_FULL=$((BAT_CHARGE_FULL + charge_full))
+        else
+            BAT_CHARGE_OK=false
+        fi
+
+        cap=$(cat "$supply/capacity" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$cap" =~ ^[0-9]+$ ]]; then
+            BAT_CAP_SUM=$((BAT_CAP_SUM + cap)); BAT_CAP_COUNT=$((BAT_CAP_COUNT + 1))
         fi
     done
 fi
-BAT_CAP=$(( BAT_COUNT > 0 ? BAT_CAP_SUM / BAT_COUNT : 100 ))
+
+if [ "$BAT_TOTAL" -gt 0 ]; then
+    if [ "$BAT_ENERGY_OK" = "true" ] && [ "$BAT_ENERGY_FULL" -gt 0 ]; then
+        BAT_CAP=$(( (BAT_ENERGY_NOW * 100 + BAT_ENERGY_FULL / 2) / BAT_ENERGY_FULL ))
+    elif [ "$BAT_CHARGE_OK" = "true" ] && [ "$BAT_CHARGE_FULL" -gt 0 ]; then
+        BAT_CAP=$(( (BAT_CHARGE_NOW * 100 + BAT_CHARGE_FULL / 2) / BAT_CHARGE_FULL ))
+    elif [ "$BAT_CAP_COUNT" -gt 0 ]; then
+        BAT_CAP=$(( BAT_CAP_SUM / BAT_CAP_COUNT ))
+    else
+        BAT_CAP=100
+    fi
+else
+    BAT_CAP=100
+fi
+if [ "$BAT_CAP" -gt 100 ]; then BAT_CAP=100; fi
+if [ "$BAT_CAP" -lt 0 ]; then BAT_CAP=0; fi
 
 ENABLED="true"
 PROF_AC="performance"; PROF_BAT_HIGH="balanced"; PROF_BAT_LOW="power-saver"; BAT_THRESH=30

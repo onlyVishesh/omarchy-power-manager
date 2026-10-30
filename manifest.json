@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "onlyvishesh.power-manager",
   "name": "Omarchy Power Manager",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "OnlyVishesh",
   "description": "Advanced power management with hibernation support, configurable profiles, idle behavior, and lid actions",
   "kinds": [

@@ -91,18 +91,79 @@ fi
 
 POWER_SUPPLY_DIR="${OMARCHY_POWER_SUPPLY_PATH:-/sys/class/power_supply}"
 BAT_CAP=100; BAT_STAT="Unknown"; AC_ONLINE=false; BAT_PRES=false
+BAT_TOTAL=0
+BAT_ENERGY_OK=true; BAT_ENERGY_NOW=0; BAT_ENERGY_FULL=0
+BAT_CHARGE_OK=true; BAT_CHARGE_NOW=0; BAT_CHARGE_FULL=0
+BAT_CAP_SUM=0; BAT_CAP_COUNT=0
+BAT_ANY_CHARGING=false; BAT_ANY_DISCHARGING=false; BAT_ANY_NOT_CHARGING=false; BAT_ALL_FULL=true
 for supply in "$POWER_SUPPLY_DIR"/*; do
     [ -d "$supply" ] || continue
     type=$(cat "$supply/type" 2>/dev/null || echo "")
     if [ "$type" = "Battery" ]; then
+        if [ -r "$supply/present" ] && [ "$(cat "$supply/present" 2>/dev/null | tr -d '[:space:]')" = "0" ]; then
+            continue
+        fi
         BAT_PRES=true
-        BAT_CAP=$(cat "$supply/capacity" 2>/dev/null || echo 100)
-        BAT_STAT=$(cat "$supply/status" 2>/dev/null || echo "Unknown")
+        BAT_TOTAL=$((BAT_TOTAL + 1))
+
+        energy_now=$(cat "$supply/energy_now" 2>/dev/null | tr -d '[:space:]' || true)
+        energy_full=$(cat "$supply/energy_full" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$energy_now" =~ ^[0-9]+$ && "$energy_full" =~ ^[0-9]+$ ]] && [ "$energy_full" -gt 0 ]; then
+            BAT_ENERGY_NOW=$((BAT_ENERGY_NOW + energy_now))
+            BAT_ENERGY_FULL=$((BAT_ENERGY_FULL + energy_full))
+        else
+            BAT_ENERGY_OK=false
+        fi
+
+        charge_now=$(cat "$supply/charge_now" 2>/dev/null | tr -d '[:space:]' || true)
+        charge_full=$(cat "$supply/charge_full" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$charge_now" =~ ^[0-9]+$ && "$charge_full" =~ ^[0-9]+$ ]] && [ "$charge_full" -gt 0 ]; then
+            BAT_CHARGE_NOW=$((BAT_CHARGE_NOW + charge_now))
+            BAT_CHARGE_FULL=$((BAT_CHARGE_FULL + charge_full))
+        else
+            BAT_CHARGE_OK=false
+        fi
+
+        cap=$(cat "$supply/capacity" 2>/dev/null | tr -d '[:space:]' || true)
+        if [[ "$cap" =~ ^[0-9]+$ ]]; then
+            BAT_CAP_SUM=$((BAT_CAP_SUM + cap)); BAT_CAP_COUNT=$((BAT_CAP_COUNT + 1))
+        fi
+
+        st=$(cat "$supply/status" 2>/dev/null | tr '[:upper:]' '[:lower:]' || echo "")
+        case "$st" in
+            charging) BAT_ANY_CHARGING=true; BAT_ALL_FULL=false ;;
+            discharging) BAT_ANY_DISCHARGING=true; BAT_ALL_FULL=false ;;
+            full) ;;
+            "not charging") BAT_ANY_NOT_CHARGING=true; BAT_ALL_FULL=false ;;
+            *) BAT_ALL_FULL=false ;;
+        esac
     elif [ "$type" = "Mains" ]; then
         online=$(cat "$supply/online" 2>/dev/null || echo 0)
         if [ "$online" = "1" ]; then AC_ONLINE=true; fi
     fi
 done
+
+if [ "$BAT_TOTAL" -gt 0 ]; then
+    if [ "$BAT_ENERGY_OK" = "true" ] && [ "$BAT_ENERGY_FULL" -gt 0 ]; then
+        BAT_CAP=$(( (BAT_ENERGY_NOW * 100 + BAT_ENERGY_FULL / 2) / BAT_ENERGY_FULL ))
+    elif [ "$BAT_CHARGE_OK" = "true" ] && [ "$BAT_CHARGE_FULL" -gt 0 ]; then
+        BAT_CAP=$(( (BAT_CHARGE_NOW * 100 + BAT_CHARGE_FULL / 2) / BAT_CHARGE_FULL ))
+    elif [ "$BAT_CAP_COUNT" -gt 0 ]; then
+        BAT_CAP=$(( BAT_CAP_SUM / BAT_CAP_COUNT ))
+    fi
+    if [ "$BAT_CAP" -gt 100 ]; then BAT_CAP=100; fi
+    if [ "$BAT_CAP" -lt 0 ]; then BAT_CAP=0; fi
+
+    if [ "$BAT_ANY_CHARGING" = "true" ]; then
+        BAT_STAT="Charging"
+    elif [ "$BAT_ANY_DISCHARGING" = "true" ]; then
+        BAT_STAT="Discharging"
+    elif [ "$BAT_ALL_FULL" = "true" ]; then
+        BAT_STAT="Full"
+    elif [ "$BAT_ANY_NOT_CHARGING" = "true" ]; then
+        BAT_STAT="Not charging"
+    fi
+fi
 
 LOGIND_CONF="/etc/systemd/logind.conf"
 LOGIND_LID="suspend"; LOGIND_LID_EXT="suspend"; LOGIND_IDLE="ignore"; LOGIND_IDLE_SEC=0

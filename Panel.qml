@@ -22,7 +22,6 @@ Panel {
   readonly property color themeAccent: typeof Color.accent !== "undefined" ? Color.accent : "#00e699"
 
   // ── Live system state ──
-  property var batteryInfo: ({})
   property var systemInfo: ({})
   property var profiles: []
   property string activeProfile: ""
@@ -41,7 +40,7 @@ Panel {
   // ── Config state ──
   property var config: Model.defaultConfig()
   property var editConfig: Model.defaultConfig()
-  property bool configDirty: JSON.stringify(config) !== JSON.stringify(editConfig) || (tracker.supported && root.pendingLimit !== tracker.limit)
+  property bool configDirty: JSON.stringify(config) !== JSON.stringify(editConfig) || (tracker.supported && (root.pendingLimit !== tracker.limit || !tracker.limitUniform))
 
   // ── UPower convenience ──
   readonly property var upowerStates: ({ Charging: 1, Discharging: 2, FullyCharged: 4, PendingCharge: 3 })
@@ -50,6 +49,10 @@ Panel {
     return !!(d && d.isPresent && UPower.onBattery)
   }
   readonly property real batteryFrac: Model.batteryFraction(UPower.displayDevice)
+  readonly property bool batteryPresent: !!(UPower.displayDevice && UPower.displayDevice.isPresent)
+  readonly property real batteryEnergyCapacity: (UPower.displayDevice && UPower.displayDevice.energyCapacity > 0)
+    ? UPower.displayDevice.energyCapacity : tracker.full
+  readonly property bool multiBattery: tracker.batteryCount > 1
   readonly property bool fullyCharged: {
     var d = UPower.displayDevice
     return d && d.isPresent && d.state === 4 && !Model.chargeThresholdActive(d, discharging, upowerStates)
@@ -158,7 +161,6 @@ Panel {
   }
 
   function refresh() {
-    if (!batteryProc.running) batteryProc.running = true
     if (!profilesProc.running) profilesProc.running = true
     if (!systemProc.running) systemProc.running = true
     if (!brightnessReadProc.running) brightnessReadProc.running = true
@@ -285,7 +287,7 @@ Panel {
     onExited: function(code, status) {
       diagnosticsProc.running = true
       profilesProc.running = true
-      if (code === 0 && tracker.supported && root.pendingLimit !== tracker.limit) {
+      if (code === 0 && tracker.supported && (root.pendingLimit !== tracker.limit || !tracker.limitUniform)) {
         tracker.setLimit(root.pendingLimit)
       }
     }
@@ -294,18 +296,6 @@ Panel {
   Process {
     id: actionProc
     onExited: { if (!profilesProc.running) profilesProc.running = true }
-  }
-
-  Process {
-    id: batteryProc
-    command: ["omarchy-battery-status", "--shell"]
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var next = Model.parseKeyValue(text)
-        if (Object.keys(next).length > 0) root.batteryInfo = next
-      }
-    }
   }
 
   Process {
@@ -381,7 +371,7 @@ Panel {
     bar: root.bar
     fontSize: Style.bar.iconFont
     horizontalMargin: (root.config && root.config.appearance && root.config.appearance.showPercentage !== false) ? 6.0 : 8.5
-    text: ((root.config && root.config.appearance && root.config.appearance.showPercentage !== false && UPower.displayDevice.percentage * 100 > 0) ? Math.round(UPower.displayDevice.percentage * 100) + "% " : "") + (Model.batteryIcon(UPower.displayDevice, UPower.onBattery, root.upowerStates) || "󰂄")
+    text: ((root.config && root.config.appearance && root.config.appearance.showPercentage !== false && root.batteryPresent) ? Math.round(root.batteryFrac * 100) + "% " : "") + (Model.batteryIcon(UPower.displayDevice, UPower.onBattery, root.upowerStates) || "󰂄")
     onPressed: function(btn) { root.openedFromMenu = false; root.toggle() }
   }
 
@@ -485,7 +475,7 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(2)
             Text {
-              text: "Battery"
+              text: root.multiBattery ? "Batteries" : "Battery"
               color: root.bar ? root.bar.foreground : Color.foreground
               font.family: root.bar ? root.bar.fontFamily : Style.font.family
               font.pixelSize: Style.font.title
@@ -511,7 +501,7 @@ Panel {
             
             Text {
               anchors.centerIn: parent
-              text: root.batteryInfo.percentage || (Math.round(root.batteryFrac * 100) + "%")
+              text: root.batteryPresent ? Math.round(root.batteryFrac * 100) + "%" : "—"
               color: root.bar ? root.bar.foreground : Color.foreground
               font.family: root.bar ? root.bar.fontFamily : Style.font.family
               font.pixelSize: Style.font.body
@@ -551,7 +541,7 @@ Panel {
 
         // Metrics Grid
         Rectangle {
-          visible: root.batteryInfo.percentage !== undefined
+          visible: root.batteryPresent
           width: parent.width
           height: metricsGrid.implicitHeight + Style.space(28)
           radius: Style.space(12)
@@ -566,10 +556,10 @@ Panel {
             rowSpacing: Style.space(12)
             columnSpacing: Style.space(24)
             
-            InfoPair { width: (parent.width - parent.columnSpacing) / 2; label: "Battery size"; value: root.batteryInfo.size || "" }
-            InfoPair { width: (parent.width - parent.columnSpacing) / 2; label: root.discharging ? "Time left" : (root.fullyCharged ? "Status" : "Time to full"); value: root.fullyCharged ? "Full" : (root.batteryInfo.time || "—") }
-            InfoPair { width: (parent.width - parent.columnSpacing) / 2; label: root.discharging ? "Discharging" : "Charging"; value: root.fullyCharged ? "—" : (root.batteryInfo.rate || "") }
-            InfoPair { width: (parent.width - parent.columnSpacing) / 2; label: "Charge cycles"; value: tracker.cycleCount > 0 ? tracker.cycleCount : (tracker.cycleCount === 0 ? "0*" : "—") }
+            InfoPair { width: (parent.width - parent.columnSpacing) / 2; label: "Battery size"; value: Model.formatEnergy(root.batteryEnergyCapacity) }
+            InfoPair { width: (parent.width - parent.columnSpacing) / 2; label: root.discharging ? "Time left" : (root.fullyCharged ? "Status" : "Time to full"); value: root.fullyCharged ? "Full" : Model.formatTime(root.discharging ? UPower.displayDevice.timeToEmpty : UPower.displayDevice.timeToFull) }
+            InfoPair { width: (parent.width - parent.columnSpacing) / 2; label: root.discharging ? "Discharging" : "Charging"; value: root.fullyCharged ? "—" : Model.formatRate(UPower.displayDevice.changeRate) }
+            InfoPair { width: (parent.width - parent.columnSpacing) / 2; label: root.multiBattery ? "Charge cycles (total)" : "Charge cycles"; value: tracker.cycleCount > 0 ? tracker.cycleCount : (tracker.cycleCount === 0 ? "0*" : "—") }
             InfoPair { width: (parent.width - parent.columnSpacing) / 2; label: "Battery Health"; value: tracker.healthPct > 0 ? tracker.healthPct.toFixed(0) + "%" : "—" }
             Item {
               width: (parent.width - parent.columnSpacing) / 2
@@ -931,6 +921,20 @@ Panel {
                 }
               }
             }
+          }
+          Text {
+            width: parent.width
+            visible: root.multiBattery
+            text: !tracker.limitUniform
+              ? "Cut-offs differ between packs — apply to sync them."
+              : (tracker.limitPaths.length > 1
+                ? "Applied to all " + tracker.limitPaths.length + " battery packs."
+                : "Only the pack that supports a charge cut-off is limited.")
+            color: root.bar ? root.bar.foreground : Color.foreground
+            opacity: 0.5
+            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
           }
         }
 

@@ -118,6 +118,215 @@ function batteryIcon(device, onBattery, states) {
   return defaultIcons[index];
 }
 
+// ── Multi-battery aggregation ──
+// Laptops such as the ThinkPad T470 expose two battery devices (internal +
+// removable). Every calculation here works on the combined packs, weighted by
+// their actual energy/charge capacity, so 5% + 9% is reported as ~8% and not
+// as whichever battery happened to be listed first.
+
+var MICRO = 1000000;
+
+function batteryNum(row, key) {
+  var n = parseInt(row[key], 10);
+  return isNaN(n) ? -1 : n;
+}
+
+function parseBatteryProbe(raw) {
+  var rows = [];
+  var cur = null;
+  var lines = String(raw || "").split("\n");
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    if (line.indexOf("battery=") === 0) {
+      if (cur) rows.push(cur);
+      cur = { path: line.slice(8) };
+    } else if (line === "end") {
+      if (cur) { rows.push(cur); cur = null; }
+    } else if (cur) {
+      var eq = line.indexOf("=");
+      if (eq > 0) cur[line.slice(0, eq)] = line.slice(eq + 1).trim();
+    }
+  }
+  if (cur) rows.push(cur);
+  return rows;
+}
+
+function combineBatteryStatus(statuses, allFull) {
+  if (!statuses || statuses.length === 0) return "Unknown";
+  if (allFull) return "Full";
+  for (var i = 0; i < statuses.length; i++) if (statuses[i] === "charging") return "Charging";
+  for (var j = 0; j < statuses.length; j++) if (statuses[j] === "discharging") return "Discharging";
+  for (var k = 0; k < statuses.length; k++) if (statuses[k] === "not charging") return "Not charging";
+  return statuses[0].charAt(0).toUpperCase() + statuses[0].slice(1);
+}
+
+function aggregateBatteries(rows, validPath) {
+  var out = {
+    batteryCount: 0,
+    batteryPaths: [],
+    limitPaths: [],
+    present: false,
+    capacity: -1,
+    status: "",
+    cycleCount: -1,
+    full: -1,
+    fullDesign: -1,
+    capacityUnit: "Wh",
+    healthPct: -1,
+    supported: false,
+    limit: 100,
+    limitUniform: true
+  };
+  if (!rows || rows.length === 0) return out;
+
+  var whNow = 0, whFull = 0, whDesign = 0, whOk = true;
+  var ahNow = 0, ahFull = 0, ahDesign = 0, ahOk = true;
+  var designKnown = true;
+  var capSum = 0, capCount = 0;
+  var cycles = 0, cyclesKnown = 0;
+  var statuses = [];
+  var limitVals = [];
+  var allFull = true;
+
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (!r || !r.path) continue;
+    if (validPath && !validPath(r.path)) continue;
+    if (batteryNum(r, "present") === 0) continue;
+    // Ignore non-battery supplies (mains, USB-C, etc.) defensively.
+    if (r.capacity === undefined && r.energy_full === undefined && r.charge_full === undefined) continue;
+
+    out.batteryCount++;
+    out.batteryPaths.push(r.path);
+
+    var eNow = batteryNum(r, "energy_now");
+    var eFull = batteryNum(r, "energy_full");
+    var eDesign = batteryNum(r, "energy_full_design");
+    var cNow = batteryNum(r, "charge_now");
+    var cFull = batteryNum(r, "charge_full");
+    var cDesign = batteryNum(r, "charge_full_design");
+    var volt = batteryNum(r, "voltage_now");
+
+    var rowWh = false;
+    if (eFull > 0 && eNow >= 0) {
+      whNow += eNow / MICRO;
+      whFull += eFull / MICRO;
+      if (eDesign > 0) {
+        whDesign += eDesign / MICRO;
+      } else {
+        whDesign += eFull / MICRO;
+        designKnown = false;
+      }
+      rowWh = true;
+    } else if (cFull > 0 && cNow >= 0 && volt > 0) {
+      whNow += cNow * volt / 1e12;
+      whFull += cFull * volt / 1e12;
+      if (cDesign > 0) {
+        whDesign += cDesign * volt / 1e12;
+      } else {
+        whDesign += cFull * volt / 1e12;
+        designKnown = false;
+      }
+      rowWh = true;
+    }
+    if (!rowWh) whOk = false;
+
+    if (cFull > 0 && cNow >= 0) {
+      ahNow += cNow / MICRO;
+      ahFull += cFull / MICRO;
+      if (cDesign > 0) {
+        ahDesign += cDesign / MICRO;
+      } else {
+        ahDesign += cFull / MICRO;
+        designKnown = false;
+      }
+    } else {
+      ahOk = false;
+    }
+
+    var cap = batteryNum(r, "capacity");
+    if (cap >= 0) { capSum += cap; capCount++; }
+
+    var cyc = batteryNum(r, "cycle_count");
+    if (cyc >= 0) { cycles += cyc; cyclesKnown++; }
+
+    var st = String(r.status || "").toLowerCase();
+    if (st) {
+      statuses.push(st);
+      if (st !== "full") allFull = false;
+    } else {
+      allFull = false;
+    }
+
+    if (r.charge_control_end_threshold !== undefined) {
+      var lim = batteryNum(r, "charge_control_end_threshold");
+      // Some drivers report 0 to mean "no limit configured"; treat it as 100
+      // while still exposing the battery as limit-capable.
+      if (!(lim >= 1 && lim <= 100)) lim = 100;
+      limitVals.push(lim);
+      out.limitPaths.push(r.path);
+    }
+  }
+
+  out.present = out.batteryCount > 0;
+  out.supported = out.limitPaths.length > 0;
+  if (out.supported) {
+    var minLimit = 100;
+    for (var l = 0; l < limitVals.length; l++) {
+      if (limitVals[l] < minLimit) minLimit = limitVals[l];
+      if (limitVals[l] !== limitVals[0]) out.limitUniform = false;
+    }
+    out.limit = minLimit;
+  }
+
+  if (out.batteryCount > 0) {
+    // Prefer energy (Wh). Fall back to charge (Ah), then to the simple
+    // capacity average only when the kernel exposes no usable totals.
+    if (whOk && whFull > 0) {
+      out.full = whFull;
+      out.fullDesign = whDesign > 0 ? whDesign : whFull;
+      out.capacityUnit = "Wh";
+      out.capacity = Math.max(0, Math.min(100, Math.round(whNow / whFull * 100)));
+    } else if (ahOk && ahFull > 0) {
+      out.full = ahFull;
+      out.fullDesign = ahDesign > 0 ? ahDesign : ahFull;
+      out.capacityUnit = "Ah";
+      out.capacity = Math.max(0, Math.min(100, Math.round(ahNow / ahFull * 100)));
+    } else if (capCount > 0) {
+      out.capacity = Math.max(0, Math.min(100, Math.round(capSum / capCount)));
+    }
+
+    if (designKnown && out.full > 0 && out.fullDesign > 0) out.healthPct = out.full / out.fullDesign * 100;
+    if (cyclesKnown > 0) out.cycleCount = cycles;
+    out.status = combineBatteryStatus(statuses, allFull);
+  }
+  return out;
+}
+
+function formatTime(seconds) {
+  var s = Number(seconds);
+  if (!(s > 0) || !isFinite(s)) return "—";
+  var mins = Math.round(s / 60);
+  if (mins < 1) return "<1m";
+  if (mins < 60) return mins + "m";
+  var h = Math.floor(mins / 60);
+  var m = mins % 60;
+  return m > 0 ? h + "h " + m + "m" : h + "h";
+}
+
+function formatEnergy(wh) {
+  var v = Number(wh);
+  if (!(v > 0) || !isFinite(v)) return "—";
+  return (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10) + " Wh";
+}
+
+function formatRate(watts) {
+  var w = Math.abs(Number(watts));
+  if (!(w > 0) || !isFinite(w)) return "0W";
+  return Math.round(w * 10) / 10 + "W";
+}
+
 function modeLabel(device, onBattery, states) {
   var d = device || {};
   if (!d.isPresent) return "";
