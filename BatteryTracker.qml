@@ -1,11 +1,15 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "Model.js" as Model
 
 Item {
   id: root
 
   property string batteryPath: ""
+  property var batteryPaths: []
+  property var limitPaths: []
+  property int batteryCount: 0
   property bool present: false
   property int capacity: -1
   property string status: ""
@@ -17,6 +21,7 @@ Item {
 
   property bool supported: false
   property int limit: 100
+  property bool limitUniform: true
   signal limitSyncRequired(int limit)
   property bool applying: false
   property bool justApplied: false
@@ -35,56 +40,44 @@ Item {
   }
 
   function parseProbe(raw) {
-    var path = "", vals = {}
-    var lines = raw.split("\n")
-    for (var j = 0; j < lines.length; j++) {
-      var eq = lines[j].indexOf("=")
-      if (eq <= 0) continue
-      vals[lines[j].slice(0, eq)] = lines[j].slice(eq + 1).trim()
-    }
-    path = vals.path || ""
-    if (!root.validPath(path)) {
-      root.present = false
-      root.batteryPath = ""
-      return
-    }
-    var num = function(key) {
-      var n = parseInt(vals[key], 10)
-      return isNaN(n) ? -1 : n
-    }
-    root.batteryPath = path
-    root.present = true
-    root.supported = "limit" in vals
-    
+    var rows = Model.parseBatteryProbe(raw)
+    var agg = Model.aggregateBatteries(rows, function(p) { return root.validPath(p) })
+
+    root.batteryCount = agg.batteryCount
+    root.batteryPaths = agg.batteryPaths
+    root.limitPaths = agg.limitPaths
+    root.batteryPath = agg.batteryPaths.length > 0 ? agg.batteryPaths[0] : ""
+    root.present = agg.present
+    root.supported = agg.supported
+    root.limitUniform = agg.limitUniform
+    root.capacity = agg.capacity
+    root.status = (agg.status || "").slice(0, 32)
+    root.cycleCount = agg.cycleCount
+    root.full = agg.full
+    root.fullDesign = agg.fullDesign
+    root.capacityUnit = agg.capacityUnit
+
     var oldLimit = root.limit
-    if (num("limit") >= 1 && num("limit") <= 100) root.limit = num("limit")
-    
+    root.limit = agg.supported ? agg.limit : 100
+
     if (root.justApplied) {
       root.justApplied = false
       if (root.limit === oldLimit) root.limitSyncRequired(root.limit)
     }
 
-    root.capacity = num("capacity")
-    root.status = (vals.status || "").slice(0, 32)
-    root.cycleCount = num("cycle_count")
-    
-    var energy = num("energy_full") > 0 && num("energy_full_design") > 0
-    root.capacityUnit = energy ? "Wh" : "Ah"
-    root.full = energy ? num("energy_full") : num("charge_full")
-    root.fullDesign = energy ? num("energy_full_design") : num("charge_full_design")
     root.logHealth()
   }
 
   function setLimit(pct) {
     pct = parseInt(pct, 10)
-    console.log("setLimit called with pct:", pct)
     if (isNaN(pct) || pct < 50 || pct > 100) return
-    console.log("root.supported:", root.supported, "batteryPath:", root.batteryPath, "applyProc.running:", applyProc.running)
-    if (!root.supported || !root.validPath(root.batteryPath) || applyProc.running) return
+    if (!root.supported || root.limitPaths.length === 0 || applyProc.running) return
+    for (var i = 0; i < root.limitPaths.length; i++) {
+      if (!root.validPath(root.limitPaths[i])) return
+    }
     root.applying = true
     applyProc.pct = pct
-    applyProc.command = ["pkexec", "/usr/local/libexec/omarchy-power-manager/power-manager-limit", String(pct), root.batteryPath, root.tmpfilesPath]
-    console.log("Executing command:", applyProc.command)
+    applyProc.command = ["pkexec", "/usr/local/libexec/omarchy-power-manager/power-manager-limit", String(pct), root.limitPaths.join(","), root.tmpfilesPath]
     applyProc.running = true
   }
 
@@ -135,14 +128,16 @@ Item {
   Process {
     id: probe
     command: ["sh", "-c",
-      "{ b=''; for d in /sys/class/power_supply/*; do [ -f \"$d/charge_control_end_threshold\" ] && b=\"$d\" && break; done; " +
-      "if [ -z \"$b\" ]; then for d in /sys/class/power_supply/*; do { [ -f \"$d/energy_full_design\" ] || [ -f \"$d/charge_full_design\" ]; } && b=\"$d\" && break; done; fi; " +
-      "[ -z \"$b\" ] && exit 0; echo \"path=$b\"; " +
-      "[ -f \"$b/charge_control_end_threshold\" ] && echo \"limit=$(cat \"$b/charge_control_end_threshold\")\"; " +
-      "for k in capacity status cycle_count energy_full energy_full_design charge_full charge_full_design; do " +
-      "[ -f \"$b/$k\" ] && echo \"$k=$(cat \"$b/$k\")\"; done; true; } | head -c 4096"]
+      "for d in /sys/class/power_supply/*; do " +
+      "[ -f \"$d/type\" ] || continue; " +
+      "[ \"$(cat \"$d/type\" 2>/dev/null)\" = \"Battery\" ] || continue; " +
+      "if [ -f \"$d/present\" ] && [ \"$(cat \"$d/present\" 2>/dev/null)\" = \"0\" ]; then continue; fi; " +
+      "echo \"battery=$d\"; " +
+      "for k in capacity present status cycle_count energy_now energy_full energy_full_design charge_now charge_full charge_full_design voltage_now charge_control_end_threshold; do " +
+      "[ -f \"$d/$k\" ] && echo \"$k=$(cat \"$d/$k\" 2>/dev/null)\"; done; " +
+      "echo end; done | head -c 16384"]
     stdout: StdioCollector {
-      onStreamFinished: root.parseProbe(text.slice(0, 4096))
+      onStreamFinished: root.parseProbe(text.slice(0, 16384))
     }
   }
 

@@ -4,8 +4,9 @@ echo "========================================"
 echo "    POWER MANAGER - TEST DASHBOARD      "
 echo "========================================"
 
-# Get Battery Status
-POWER_SUPPLY=$(upower -e | grep battery | head -n 1)
+# Get combined battery status (DisplayDevice aggregates all packs)
+POWER_SUPPLY=$(upower -e | grep -i DisplayDevice | head -n 1)
+[ -z "$POWER_SUPPLY" ] && POWER_SUPPLY=$(upower -e | grep -i battery | head -n 1)
 if [ -n "$POWER_SUPPLY" ]; then
     STATE=$(upower -i $POWER_SUPPLY | grep state | awk '{print $2}')
     PERCENT=$(upower -i $POWER_SUPPLY | grep percentage | awk '{print $2}')

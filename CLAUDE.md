@@ -4,8 +4,9 @@
 
 - **Frontend**: `Panel.qml`. Uses native components (`CustomDropdown`, `CustomNumberField`, `CustomButton`).
 - **State**: `Model.js`. Loads/saves `~/.config/onlyvishesh.power-manager.json`.
+- **Battery data**: `BatteryTracker.qml` probes every `Battery` device in `/sys/class/power_supply/`; `Model.aggregateBatteries()` combines all packs (capacity-weighted percentage, summed health/cycles). The panel takes percentage/rate/time from UPower's `DisplayDevice`, which is already aggregated.
 - **Backend**: `scripts/power-manager-profile-switch`. Headless `udev` hook rewriting systemd logind rules.
-- **Elevation**: `scripts/power-manager-apply`. Triggered via `pkexec` for zero-sandbox-violation logind overrides.
+- **Elevation**: `scripts/power-manager-apply`. Triggered via `pkexec` for zero-sandbox-violation logind overrides. `scripts/power-manager-limit` accepts a comma-separated list of battery paths so dual-battery systems get the same cut-off.
 
 ## Customize UI
 

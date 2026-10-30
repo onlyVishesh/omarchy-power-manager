@@ -51,6 +51,7 @@ Configure hardware-aware lid-close actions with real-time `systemd-logind` synci
 
 Unlike generic power scripts, Omarchy Power Manager features **dynamic hardware awareness**:
 - 🧠 **Smart Battery Thresholds:** Automatically shifts your laptop between AC, Battery High, and Battery Low profiles dynamically based on your actual battery percentage.
+- 🔋 **Dual-Battery Aware:** Laptops with more than one pack (e.g. ThinkPad T470 internal + removable batteries) report one combined, capacity-weighted percentage, health, and cycle total — and charge limits are applied to **every** battery.
 - 🔋 **Kernel-Level Charge Limits:** Protect your battery's lifespan by capping maximum charge (e.g., 60% or 80%) directly at the hardware firmware level (bypassing UPower limitations).
 - ⚡ **Real-Time Logind Rewriting:** Unplugging your laptop physically rewrites your Linux kernel lid-close rules on the fly via a background `udev` worker. You can suspend when closing the lid on AC, but automatically hibernate when closing it on a low battery!
 - 🛡️ **Flawless Wayland Integration:** Native hooks into Omarchy's lock screen and idle timers. Intelligently provides a 60-second grace period upon waking up to prevent instant wake-loops.
@@ -109,6 +110,29 @@ To ensure maximum hardware compatibility, the plugin ships with highly robust, f
   - **Battery Low:** Sleeps after `5` minutes.
 - **Lid Close:** Defaulted to `suspend` across all three states.
 - **Battery Limit:** `100%` (Stock behavior). For laptop health, we recommend `80%`.
+
+### 🔋 Dual-Battery Laptops
+
+Some laptops expose more than one battery to the kernel. The ThinkPad T470, for
+example, has an internal `BAT0` and a removable `BAT1`. The plugin reads every
+present `Battery` device under `/sys/class/power_supply/` and reports:
+
+- **Percentage:** combined using `sum(energy_now) / sum(energy_full)` (falling
+  back to charge in Ah when a pack has no energy counters). A 5% internal pack
+  plus a 9% removable pack therefore shows as the true ~8% total.
+- **Battery size / health:** the sum of usable capacity versus the sum of design
+  capacity across all packs.
+- **Charge cycles:** the sum of the cycles reported by each pack.
+- **Charge cut-off:** applied to every battery that supports
+  `charge_control_end_threshold`, and persisted for all of them in
+  `/etc/tmpfiles.d/battery-limiter.conf`.
+
+Batteries with `present=0` (for example a removed swappable pack) are ignored
+until they are reinserted.
+
+> Updating the plugin code alone is not enough for the charge-limit backend,
+> which lives in a root-owned path. Re-run `sudo extras/install.sh` after
+> updating so the multi-battery `power-manager-limit` script is installed.
 
 ---
 
