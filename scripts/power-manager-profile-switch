@@ -179,7 +179,6 @@ INI
         
         
     # SYNC OMARCHY SHELL IDLE TIMERS
-    SHELL_CONF="$HOME/.config/omarchy/shell.json"
     if [ "$(id -u)" -eq 0 ]; then
         ACTIVE_USER=$(who -u 2>/dev/null | awk '{print $1}' | head -n 1 || true)
         if [ -n "$ACTIVE_USER" ]; then
