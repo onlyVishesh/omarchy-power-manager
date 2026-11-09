@@ -2,6 +2,15 @@
 set -euo pipefail
 export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
+# Serialise concurrent invocations. The udev rule starts one copy per power_supply
+# device, and several copies writing shell.json at once can truncate it.
+LOCK_DIR="${OMARCHY_POWER_LOCK_DIR:-/run/lock}"
+if [ -z "${OMARCHY_POWER_LOCKED:-}" ] && command -v flock >/dev/null 2>&1 \
+   && [ -d "$LOCK_DIR" ] && [ -w "$LOCK_DIR" ]; then
+    export OMARCHY_POWER_LOCKED=1
+    exec flock -w 30 "$LOCK_DIR/omarchy-power-manager.lock" "$0" "$@"
+fi
+
 # 1. Resolve Config File
 CONFIG_FILE="${OMARCHY_POWER_CONF:-${1:-}}"
 if [ -z "$CONFIG_FILE" ]; then
@@ -179,7 +188,6 @@ INI
         
         
     # SYNC OMARCHY SHELL IDLE TIMERS
-    SHELL_CONF="$HOME/.config/omarchy/shell.json"
     if [ "$(id -u)" -eq 0 ]; then
         ACTIVE_USER=$(who -u 2>/dev/null | awk '{print $1}' | head -n 1 || true)
         if [ -n "$ACTIVE_USER" ]; then
@@ -190,9 +198,25 @@ INI
                 # Screensaver starts 30 seconds before sleep/lock
                 SCR_SEC=$((LOCK_SEC - 30))
                 if [ "$SCR_SEC" -lt 30 ]; then SCR_SEC=30; fi
-                
-                # Use jq to update the idle config
-                jq ".idle.screensaver = $SCR_SEC | .idle.lock = $LOCK_SEC" "$REAL_SHELL_CONF" > "${REAL_SHELL_CONF}.tmp" && chown "$ACTIVE_USER:" "${REAL_SHELL_CONF}.tmp" && mv "${REAL_SHELL_CONF}.tmp" "$REAL_SHELL_CONF" || true
+
+                # Only write when the values actually change, so power events don't
+                # make Quickshell reload its whole config.
+                CUR_LOCK=$(jq -r '.idle.lock // -1' "$REAL_SHELL_CONF" 2>/dev/null || echo -1)
+                CUR_SCR=$(jq -r '.idle.screensaver // -1' "$REAL_SHELL_CONF" 2>/dev/null || echo -1)
+                if [ "$CUR_LOCK" != "$LOCK_SEC" ] || [ "$CUR_SCR" != "$SCR_SEC" ]; then
+                    # Write to a per-invocation temp file, never a fixed "<file>.tmp",
+                    # and only replace shell.json with a non-empty, valid result.
+                    TMP_SHELL=$(mktemp "${REAL_SHELL_CONF}.tmp.XXXXXX" 2>/dev/null || true)
+                    if [ -n "${TMP_SHELL:-}" ] \
+                       && jq ".idle.screensaver = $SCR_SEC | .idle.lock = $LOCK_SEC" "$REAL_SHELL_CONF" > "$TMP_SHELL" 2>/dev/null \
+                       && [ -s "$TMP_SHELL" ] \
+                       && jq -e . "$TMP_SHELL" >/dev/null 2>&1; then
+                        chown "$ACTIVE_USER:" "$TMP_SHELL" 2>/dev/null || true
+                        mv -f "$TMP_SHELL" "$REAL_SHELL_CONF"
+                    else
+                        if [ -n "${TMP_SHELL:-}" ]; then rm -f "$TMP_SHELL"; fi
+                    fi
+                fi
             fi
         fi
     fi

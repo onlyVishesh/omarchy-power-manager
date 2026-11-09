@@ -34,7 +34,7 @@ UDEV_DIR="${OMARCHY_UDEV_DIR:-/etc/udev/rules.d}"
 if [ "$(id -u)" -eq 0 ] || [ -n "${OMARCHY_UDEV_DIR:-}" ]; then
     mkdir -p "$UDEV_DIR" 2>/dev/null || true
     if ! cat <<UDEV > "$UDEV_DIR/90-omarchy-power-manager.rules" 2>/dev/null
-SUBSYSTEM=="power_supply", ACTION=="change", RUN+="$DIR/power-manager-profile-switch $CONFIG_FILE"
+SUBSYSTEM=="power_supply", KERNEL=="BAT[0-9]*|ADP[0-9]*|AC|ACAD", ACTION=="change", RUN+="$DIR/power-manager-profile-switch $CONFIG_FILE"
 UDEV
     then
         echo '{"success": false, "errors": ["Failed to write udev rules"]}'
